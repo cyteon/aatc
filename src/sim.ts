@@ -56,7 +56,6 @@ export async function connectSim(onUpdate: (newState: any) => void) {
             }
         }
 
-        console.log(state);
         onUpdate(state);
     });
 

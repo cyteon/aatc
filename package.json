@@ -1,6 +1,6 @@
 {
   "name": "aatc",
-  "module": "src/index.ts",
+  "module": "src/index.tsx",
   "type": "module",
   "private": true,
   "devDependencies": {
@@ -10,6 +10,10 @@
     "typescript": "^7"
   },
   "dependencies": {
-    "node-simconnect": "^4.2.0"
+    "@types/react": "^19.3.0",
+    "fullscreen-ink": "^0.1.0",
+    "ink": "^7.1.1",
+    "node-simconnect": "^4.2.0",
+    "react": "^19.3.0"
   }
 }
