@@ -17,7 +17,7 @@ const VARIABLES = [
 
 const DEF = 1, REQ = 1;
 
-export async function connectSim(onUpdate) {
+export async function connectSim(onUpdate: (newState: any) => void) {
     const { handle } = await open("atc-node", Protocol.KittyHawk);
 
     for (const [, name, units] of VARIABLES) {
@@ -33,7 +33,7 @@ export async function connectSim(onUpdate) {
             let value: any = e.data.readFloat64();
 
             if (key === "onGround") value = value != 0;
-            // todo: decoder for com1 and squawk
+            if (key === "com1") value = decodeBcd16(value);
 
             state[key] = value;
         }
@@ -45,4 +45,9 @@ export async function connectSim(onUpdate) {
 
     handle.on("exception", (err) => console.log(`msfs exception: ${err.exceptionName}`));
     handle.on("quit", () => console.log("msfs kaboom"));
+}
+
+function decodeBcd16(raw) {
+    const d = Math.round(raw).toString(16).padStart(4, "0");
+    return raw > 0 ? parseFloat(`1${d.slice(0, 2)}.${d.slice(2)}`) : 0;
 }
