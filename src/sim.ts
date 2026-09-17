@@ -1,6 +1,6 @@
 import { open, Protocol, SimConnectConstants, SimConnectDataType, SimConnectPeriod } from "node-simconnect";
 
-const VARIABLES = [
+const FLOATS = [
     [ "latitude", "PLANE LATITUDE", "degrees" ],
     [ "longitude", "PLANE LONGITUDE", "degrees" ],
     [ "indicatedAlt", "INDICATED ALTITUDE", "feet" ],
@@ -15,31 +15,48 @@ const VARIABLES = [
     [ "windKt", "AMBIENT WIND VELOCITY", "knots" ]
 ];
 
-const DEF = 1, REQ = 1;
+const STRINGS = [
+    [ "callsign", "ATC FLIGHT NUMBER", SimConnectDataType.STRING32, "readString32" ]
+];
+
+const FLOATS_ID = 1;
+const STRINGS_ID = 1;
 
 export async function connectSim(onUpdate: (newState: any) => void) {
     const { handle } = await open("atc-node", Protocol.KittyHawk);
 
-    for (const [, name, units] of VARIABLES) {
-        handle.addToDataDefinition(DEF, name!, units!, SimConnectDataType.FLOAT64);
+    for (const [, name, units] of FLOATS) {
+        handle.addToDataDefinition(FLOATS_ID, name as string, units!, SimConnectDataType.FLOAT64);
     }
 
-    handle.requestDataOnSimObject(REQ, DEF, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND);
+    for (const [, name, type] of STRINGS) {
+        handle.addToDataDefinition(STRINGS_ID, name as string, null, type as SimConnectDataType);
+    }
+
+    handle.requestDataOnSimObject(FLOATS_ID, FLOATS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND);
+    handle.requestDataOnSimObject(STRINGS_ID, STRINGS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND, 0, 0, 5);
 
     handle.on("simObjectData", (e) => {
         const state = {};
 
-        for (const [key] of VARIABLES) {
-            let value: any = e.data.readFloat64();
+        if (e.requestID === FLOATS_ID) {
+            for (const [key] of FLOATS) {
+                let value: any = e.data.readFloat64();
 
-            if (key === "onGround") value = value != 0;
-            if (key === "com1") value = decodeBcd16(value);
+                if (key === "onGround") value = value != 0;
+                if (key === "com1") value = decodeBcd16(value);
 
-            state[key] = value;
+                state[key] = value;
+            }
+        }
+
+        if (e.requestID === STRINGS_ID) {
+            for (const [key, , , reader] of STRINGS) {
+                state[key] = e.data[reader]().trim();
+            }
         }
 
         console.log(state);
-
         onUpdate(state);
     });
 
