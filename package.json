@@ -8,5 +8,8 @@
   },
   "peerDependencies": {
     "typescript": "^7"
+  },
+  "dependencies": {
+    "node-simconnect": "^4.2.0"
   }
 }
