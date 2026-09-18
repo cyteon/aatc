@@ -1,4 +1,4 @@
-import { open, Protocol, SimConnectConstants, SimConnectDataType, SimConnectPeriod } from "node-simconnect";
+import { open, Protocol, SimConnectConnection, SimConnectConstants, SimConnectDataType, SimConnectPeriod } from "node-simconnect";
 
 const FLOATS = [
     [ "latitude", "PLANE LATITUDE", "degrees" ],
@@ -23,7 +23,14 @@ const FLOATS_ID = 1;
 const STRINGS_ID = 1;
 
 export async function connectSim(onUpdate: (newState: any) => void) {
-    const { handle } = await open("atc-node", Protocol.KittyHawk);
+    let handle: SimConnectConnection | undefined;
+
+    try {
+        handle = (await open("atc-node", Protocol.KittyHawk)).handle;
+    } catch (e) {
+        console.log("simconnect failed");
+        process.exit(0);
+    }
 
     for (const [, name, units] of FLOATS) {
         handle.addToDataDefinition(FLOATS_ID, name as string, units!, SimConnectDataType.FLOAT64);
@@ -61,6 +68,15 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
     handle.on("exception", (err) => console.log(`msfs exception: ${err.exceptionName}`));
     handle.on("quit", () => console.log("msfs kaboom"));
+
+    function shutdown() {
+        handle.close();
+        process.exit(0);
+    }
+
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+    process.on("SIGBREAK", shutdown);
 }
 
 function decodeBcd16(raw) {
