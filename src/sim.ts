@@ -98,7 +98,7 @@ export async function connectSim(onUpdate: (newState: any) => void) {
     let state = {};
 
     handle.on("simObjectData", (e) => {
-        let patch = {};
+        let patch: Record<string, any> = {};
 
         if (e.requestID === FLOATS_ID) {
             for (const [key] of FLOATS) {
@@ -107,13 +107,13 @@ export async function connectSim(onUpdate: (newState: any) => void) {
                 if (key === "onGround") value = value != 0;
                 if (key === "com1") value = decodeBcd16(value);
 
-                patch[key] = value;
+                patch[key as string] = value;
             }
         }
 
         if (e.requestID === STRINGS_ID) {
             for (const [key, , , reader] of STRINGS) {
-                patch[key] = e.data[reader]().trim();
+                patch[key as string] = e.data[reader]().trim();
             }
         }
 
@@ -212,7 +212,7 @@ export async function connectSim(onUpdate: (newState: any) => void) {
     activeClose = close;
 }
 
-function decodeBcd16(raw) {
+function decodeBcd16(raw: number) {
     const d = Math.round(raw).toString(16).padStart(4, "0");
     return raw > 0 ? parseFloat(`1${d.slice(0, 2)}.${d.slice(2)}`) : 0;
 }

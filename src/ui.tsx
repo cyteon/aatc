@@ -11,7 +11,7 @@ function fitLog(log: { sender: string, message: string }[], rows: number, width:
     let used = 0;
 
     for (let i = log.length - 1; i >= 0; i--) {
-        const length = log[i].sender.length + log[i].message.length + 3;
+        const length = log[i]!.sender.length + log[i]!.message.length + 3;
         const lines = Math.max(1, Math.ceil(length / width));
 
         if (used + lines > rows) break;
