@@ -1,6 +1,6 @@
 import { open, Protocol, SimConnectConnection, SimConnectConstants, SimConnectDataType, SimConnectPeriod, FacilityDataType } from "node-simconnect";
 import { appendFileSync } from "node:fs";
-import { inspect } from "node:util";
+import { structureAirportData } from "./utils/airports";
 
 const trace = (msg: string) => appendFileSync("sim.log", msg + "\n");
 trace("sim log started");
@@ -67,7 +67,7 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
     [
         "OPEN AIRPORT",
-            "LATITUDE", "LONGITUDE", "ALTITUDE",
+            "LATITUDE", "LONGITUDE", "ALTITUDE", "ICAO",
 
             "OPEN RUNWAY",
                 "LATITUDE", "LONGITUDE", "HEADING", "LENGTH", "WIDTH",
@@ -118,7 +118,6 @@ export async function connectSim(onUpdate: (newState: any) => void) {
     });
 
     let facility_nodes = new Map<number, any>();
-    let root: any = null;
 
     handle.on("facilityData", (e) => {
         if (e.userRequestId !== FACILITY_ID) return;
@@ -127,8 +126,9 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
         if (e.type === FacilityDataType.AIRPORT) {
             node.lat = e.data.readFloat64();
-            node.lon = e.data.readFloat64();
+            node.long = e.data.readFloat64();
             node.alt = e.data.readFloat64() * 3.28084;
+            node.icao = e.data.readString8();
         } else if (e.type === FacilityDataType.RUNWAY) {
             node.lat = e.data.readFloat64();
             node.lon = e.data.readFloat64();
@@ -168,15 +168,16 @@ export async function connectSim(onUpdate: (newState: any) => void) {
         
         if (e.uniqueRequestId !== e.parentUniqueRequestId) {
             facility_nodes.get(e.parentUniqueRequestId)?.children.push(node);
-        } else {
-            root = node;
         }
     });
 
     handle.requestFacilityData(FACILITY_ID, FACILITY_ID, "ENGM");
 
     handle.on("facilityDataEnd", (e) => {
-        trace(`facility data: ${JSON.stringify(Object.fromEntries(facility_nodes), null, 2)}`);
+        const data = structureAirportData(facility_nodes);
+        trace(`structured airport data: ${JSON.stringify(data, null, 2)}`);
+
+        facility_nodes.clear();
     });
 
     handle.on("exception", (err) => {
