@@ -69,6 +69,10 @@ export async function connectSim(onUpdate: (newState: any) => void) {
         "OPEN AIRPORT",
             "LATITUDE", "LONGITUDE", "ALTITUDE", "ICAO",
 
+            "OPEN FREQUENCY",
+                "TYPE", "FREQUENCY", "NAME",
+            "CLOSE FREQUENCY",
+
             "OPEN RUNWAY",
                 "LATITUDE", "LONGITUDE", "HEADING", "LENGTH", "WIDTH",
                 "PRIMARY_NUMBER", "SECONDARY_NUMBER",
@@ -129,6 +133,10 @@ export async function connectSim(onUpdate: (newState: any) => void) {
             node.long = e.data.readFloat64();
             node.alt = e.data.readFloat64() * 3.28084;
             node.icao = e.data.readString8();
+        } else if (e.type === FacilityDataType.FREQUENCY) {
+            node.freqType = e.data.readInt32();
+            node.hz = e.data.readInt32();
+            node.name = e.data.readString64();
         } else if (e.type === FacilityDataType.RUNWAY) {
             node.lat = e.data.readFloat64();
             node.lon = e.data.readFloat64();
