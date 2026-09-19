@@ -2,6 +2,25 @@ import { Box, Static, Text, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { useEffect, useState } from "react";
 import { connectSim } from "./sim";
+import { useScreenSize } from "fullscreen-ink";
+
+const OTHER_ROWS = 5;
+
+function fitLog(log: { sender: string, message: string }[], rows: number, width: number) {
+    const out = [];
+    let used = 0;
+
+    for (let i = log.length - 1; i >= 0; i--) {
+        const length = log[i].sender.length + log[i].message.length + 3;
+        const lines = Math.max(1, Math.ceil(length / width));
+
+        if (used + lines > rows) break;
+        out.unshift(log[i]);
+        used += lines;
+    }
+
+    return out;
+}
 
 export default function App() {
     const { exit } = useApp();
@@ -23,13 +42,15 @@ export default function App() {
     },  []);
 
     const [log, setLog] = useState<{ sender: string, message: string }[]>([]);
-
     const [input, setInput] = useState("");
 
     function handleSubmit() {
         setLog([...log, { sender: "You", message: input }]);
         setInput("");
     }
+
+    const { height, width } = useScreenSize();
+    const visible = fitLog(log, height - OTHER_ROWS, width);
 
     return (
         <Box flexDirection="column" width="100%">
@@ -76,8 +97,8 @@ export default function App() {
                 </Box>
             </Box>
 
-            <Box flexDirection="column" flexGrow={1} justifyContent="flex-end" marginY={1}>
-                {log.map((m, i) => (
+            <Box flexDirection="column" flexGrow={1} justifyContent="flex-end" marginY={1} overflow="none">
+                {visible.map((m, i) => (
                     <Box key={i}>
                         <Text color={m.sender === "You" ? "white" : "yellowBright"}>[{m.sender}] {m.message}</Text>
                     </Box>

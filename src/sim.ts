@@ -179,12 +179,8 @@ export async function connectSim(onUpdate: (newState: any) => void) {
         }
     });
 
-    handle.requestFacilityData(FACILITY_ID, FACILITY_ID, "ENGM");
-
     handle.on("facilityDataEnd", (e) => {
         const data = structureAirportData(facility_nodes);
-        trace(`structured airport data: ${JSON.stringify(data, null, 2)}`);
-
         facility_nodes.clear();
     });
 
