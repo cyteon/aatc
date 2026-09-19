@@ -14,40 +14,52 @@ export default function App() {
     }, []);
 
     const [state, setState] = useState(null);
-    const sim = connectSim(setState);
+    
+    useEffect(() => {
+        connectSim(setState).catch((e) => {
+            setState({ simError: e.message });
+        });
+    },  []);
 
     return (
         <Box flexDirection="column">
             <Box backgroundColor="#4169E1" paddingX={1} flexDirection="column">
                 <Box>
-                    <Box flexGrow={1} marginRight={2}>
+                    <Box marginRight={2}>
                         <Text color="#0B1026">CALLSIGN </Text>
                         <Text bold>{state?.callsign ?? "---"}</Text>
                     </Box>
 
-                    <Box flexGrow={1} marginRight={2}>
+                    <Box marginRight={2}>
                         <Text color="#0B1026">COM1 </Text>
                         <Text  bold>{state?.com1 ?? "---"}</Text>
                     </Box>
 
-                    <Box flexGrow={1}>
+                    <Box>
                         <Text color="#0B1026">SQUAWK </Text>
                         <Text  bold>{state?.squawk ?? "---"}</Text>
                     </Box>
+
+                    {state?.simError && (
+                        <Box marginLeft={2}>
+                            <Text color="red">ERROR </Text>
+                            <Text bold>{state.simError}</Text>
+                        </Box>
+                    )}
                 </Box>
 
                 <Box>
-                    <Box flexGrow={1} marginRight={2}>
+                    <Box marginRight={2}>
                         <Text color="#0B1026">ALT </Text>
                         <Text bold>{parseInt(state?.indicatedAlt!) ?? "---"}ft</Text>
                     </Box>
 
-                    <Box flexGrow={1} marginRight={2}>
+                    <Box marginRight={2}>
                         <Text color="#0B1026">HDG </Text>
                         <Text  bold>{parseInt(state?.magHeading!) ?? "---"}</Text>
                     </Box>
 
-                    <Box flexGrow={1}>
+                    <Box>
                         <Text color="#0B1026">IAS </Text>
                         <Text  bold>{parseInt(state?.iasKt!) ?? "---"}kt</Text>
                     </Box>

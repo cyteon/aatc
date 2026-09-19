@@ -1,4 +1,8 @@
 import { open, Protocol, SimConnectConnection, SimConnectConstants, SimConnectDataType, SimConnectPeriod } from "node-simconnect";
+import { appendFileSync } from "node:fs";
+
+const trace = (msg: string) => appendFileSync("sim.log", msg + "\n");
+trace("sim log started");
 
 const FLOATS = [
     [ "latitude", "PLANE LATITUDE", "degrees" ],
@@ -20,16 +24,28 @@ const STRINGS = [
 ];
 
 const FLOATS_ID = 1;
-const STRINGS_ID = 1;
+const STRINGS_ID = 2;
+
+let activeClose: (() => void) | undefined;
+export function closeSim() {
+    activeClose?.();
+}
 
 export async function connectSim(onUpdate: (newState: any) => void) {
     let handle: SimConnectConnection | undefined;
 
     try {
         handle = (await open("atc-node", Protocol.KittyHawk)).handle;
-    } catch (e) {
-        console.log("simconnect failed");
-        process.exit(0);
+    } catch (err) {
+        if (err instanceof AggregateError) {
+            trace(`simconnect connection errors:\n${(err as AggregateError).errors.map(e => "- " + e.message).join("\n")}`);
+            onUpdate({ simError: "simconnect connection failed" });
+            return;
+        }
+
+        trace(`simconnect connection failed: ${(err as Error).message}`);
+        onUpdate({ simError: (err as Error).message });
+        return;
     }
 
     for (const [, name, units] of FLOATS) {
@@ -43,8 +59,10 @@ export async function connectSim(onUpdate: (newState: any) => void) {
     handle.requestDataOnSimObject(FLOATS_ID, FLOATS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND);
     handle.requestDataOnSimObject(STRINGS_ID, STRINGS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND, 0, 0, 5);
 
+    let state = {};
+
     handle.on("simObjectData", (e) => {
-        const state = {};
+        let patch = {};
 
         if (e.requestID === FLOATS_ID) {
             for (const [key] of FLOATS) {
@@ -53,30 +71,44 @@ export async function connectSim(onUpdate: (newState: any) => void) {
                 if (key === "onGround") value = value != 0;
                 if (key === "com1") value = decodeBcd16(value);
 
-                state[key] = value;
+                patch[key] = value;
             }
         }
 
         if (e.requestID === STRINGS_ID) {
             for (const [key, , , reader] of STRINGS) {
-                state[key] = e.data[reader]().trim();
+                patch[key] = e.data[reader]().trim();
             }
         }
 
+        state = { ...state, ...patch };
         onUpdate(state);
     });
 
-    handle.on("exception", (err) => console.log(`msfs exception: ${err.exceptionName}`));
-    handle.on("quit", () => console.log("msfs kaboom"));
+    handle.on("exception", (err) => {
+        trace(`simconnect exception: ${err.exceptionName}`);
+        onUpdate({ ...state, simError: err.exceptionName });
+    });
+    handle.on("error", (err) => {
+        trace(`simconnect error: ${err.message}`);
+        onUpdate({ ...state, simError: err.message });
+    });
+    handle.on("quit", () => {
+        trace("simconnect quit");
+        onUpdate({ ...state, simError: "simulator closed" })
+    });
 
-    function shutdown() {
-        handle.close();
-        process.exit(0);
+    function close() {
+        handle?.requestDataOnSimObject(FLOATS_ID, FLOATS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.NEVER);
+        handle?.requestDataOnSimObject(STRINGS_ID, STRINGS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.NEVER);
+
+        handle?.clearDataDefinition(FLOATS_ID);
+        handle?.clearDataDefinition(STRINGS_ID);
+
+        handle?.close();
     }
 
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-    process.on("SIGBREAK", shutdown);
+    activeClose = close;
 }
 
 function decodeBcd16(raw) {
