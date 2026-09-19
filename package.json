@@ -13,6 +13,7 @@
     "@types/react": "^19.3.0",
     "fullscreen-ink": "^0.1.0",
     "ink": "^7.1.1",
+    "ink-text-input": "^6.0.0",
     "node-simconnect": "^4.2.0",
     "react": "^19.3.0"
   }
