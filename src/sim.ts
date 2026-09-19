@@ -1,5 +1,6 @@
-import { open, Protocol, SimConnectConnection, SimConnectConstants, SimConnectDataType, SimConnectPeriod } from "node-simconnect";
+import { open, Protocol, SimConnectConnection, SimConnectConstants, SimConnectDataType, SimConnectPeriod, FacilityDataType } from "node-simconnect";
 import { appendFileSync } from "node:fs";
+import { inspect } from "node:util";
 
 const trace = (msg: string) => appendFileSync("sim.log", msg + "\n");
 trace("sim log started");
@@ -26,10 +27,15 @@ const STRINGS = [
 const FLOATS_ID = 1;
 const STRINGS_ID = 2;
 
+const FACILITY_ID = 100;
+let facility_field_ids = new Map<number, string>();
+
 let activeClose: (() => void) | undefined;
 export function closeSim() {
     activeClose?.();
 }
+
+const RUNWAY_DESIGNATORS = ["", "L", "R", "C", "W", "A", "B"];
 
 export async function connectSim(onUpdate: (newState: any) => void) {
     let handle: SimConnectConnection | undefined;
@@ -59,6 +65,32 @@ export async function connectSim(onUpdate: (newState: any) => void) {
     handle.requestDataOnSimObject(FLOATS_ID, FLOATS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND);
     handle.requestDataOnSimObject(STRINGS_ID, STRINGS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND, 0, 0, 5);
 
+    [
+        "OPEN AIRPORT",
+            "LATITUDE", "LONGITUDE", "ALTITUDE",
+
+            "OPEN RUNWAY",
+                "LATITUDE", "LONGITUDE", "HEADING", "LENGTH", "WIDTH",
+                "PRIMARY_NUMBER", "SECONDARY_NUMBER",
+                "PRIMARY_DESIGNATOR", "SECONDARY_DESIGNATOR",
+            "CLOSE RUNWAY",
+
+            "OPEN TAXI_POINT",
+                "TYPE", "ORIENTATION", "BIAS_X", "BIAS_Z",
+            "CLOSE TAXI_POINT",
+
+            "OPEN TAXI_NAME",
+                "NAME",
+            "CLOSE TAXI_NAME",
+
+            "OPEN TAXI_PATH",
+                "TYPE", "START", "END", "WIDTH", "NAME_INDEX",
+            "CLOSE TAXI_PATH",
+        "CLOSE AIRPORT"
+    ].forEach((name) => {
+        facility_field_ids.set(handle.addToFacilityDefinition(FACILITY_ID, name), name);
+    });
+
     let state = {};
 
     handle.on("simObjectData", (e) => {
@@ -85,14 +117,78 @@ export async function connectSim(onUpdate: (newState: any) => void) {
         onUpdate(state);
     });
 
+    let facility_nodes = new Map<number, any>();
+    let root: any = null;
+
+    handle.on("facilityData", (e) => {
+        if (e.userRequestId !== FACILITY_ID) return;
+
+        const node: any = { type: e.type, children: [] };
+
+        if (e.type === FacilityDataType.AIRPORT) {
+            node.lat = e.data.readFloat64();
+            node.lon = e.data.readFloat64();
+            node.alt = e.data.readFloat64() * 3.28084;
+        } else if (e.type === FacilityDataType.RUNWAY) {
+            node.lat = e.data.readFloat64();
+            node.lon = e.data.readFloat64();
+            node.heading = e.data.readFloat32();
+            node.lengthFt = e.data.readFloat32() * 3.28084;
+            node.widthFt = e.data.readFloat32() * 3.28084;
+
+            let primaryNumber = e.data.readInt32();
+            let secondaryNumber = e.data.readInt32();
+
+            let primaryDesignator = e.data.readInt32();
+            let secondaryDesignator = e.data.readInt32();
+
+            let rwy_1 = primaryNumber >= 1 && primaryNumber <= 36 ? String(primaryNumber).padStart(2, "0") + RUNWAY_DESIGNATORS[primaryDesignator] : "";
+            let rwy_2 = secondaryNumber >= 1 && secondaryNumber <= 36 ? String(secondaryNumber).padStart(2, "0") + RUNWAY_DESIGNATORS[secondaryDesignator] : "";
+
+            node.rwy_1 = rwy_1;
+            node.rwy_2 = rwy_2;
+        } else if (e.type === FacilityDataType.TAXI_POINT) {
+            node.pointType = e.data.readInt32();
+            node.orientation = e.data.readInt32();
+            node.biasXm = e.data.readFloat32();
+            node.biasZm = e.data.readFloat32();
+            node.index = e.itemIndex;
+        } else if (e.type === FacilityDataType.TAXI_NAME) {
+            node.name = e.data.readString32();
+            node.index = e.itemIndex;
+        } else if (e.type === FacilityDataType.TAXI_PATH) {
+            node.pathType = e.data.readInt32();
+            node.start = e.data.readInt32();
+            node.end = e.data.readInt32();
+            node.widthFt = e.data.readFloat32() * 3.28084;
+            node.nameIndex = e.data.readUint32();
+        }
+
+        facility_nodes.set(e.uniqueRequestId, node);
+        
+        if (e.uniqueRequestId !== e.parentUniqueRequestId) {
+            facility_nodes.get(e.parentUniqueRequestId)?.children.push(node);
+        } else {
+            root = node;
+        }
+    });
+
+    handle.requestFacilityData(FACILITY_ID, FACILITY_ID, "ENGM");
+
+    handle.on("facilityDataEnd", (e) => {
+        trace(`facility data: ${JSON.stringify(Object.fromEntries(facility_nodes), null, 2)}`);
+    });
+
     handle.on("exception", (err) => {
         trace(`simconnect exception: ${err.exceptionName}`);
         onUpdate({ ...state, simError: err.exceptionName });
     });
+
     handle.on("error", (err) => {
         trace(`simconnect error: ${err.message}`);
         onUpdate({ ...state, simError: err.message });
     });
+
     handle.on("quit", () => {
         trace("simconnect quit");
         onUpdate({ ...state, simError: "simulator closed" })
