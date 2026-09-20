@@ -18,7 +18,7 @@ export function structureAirportData(nodes: Map<number, any>) {
         alt: Math.round(airport?.alt),
 
         frequencies: all.filter(node => node.type === FacilityDataType.FREQUENCY).map(f => ({
-            type: f.freqType,
+            freqType: f.freqType,
             hz: f.hz,
             name: f.name
         })),
@@ -50,37 +50,4 @@ export function structureAirportData(nodes: Map<number, any>) {
     };
 
     return data;
-}
-
-const FREQUENCY_TYPES: Record<number, string> = {
-    0: "NONE",
-    1: "ATIS",
-    2: "MULTICOM",
-    3: "UNICOM",
-    4: "CTAF",
-    5: "GROUND",
-    6: "TOWER",
-    7: "CLEARANCE",
-    8: "APPROACH",
-    9: "DEPARTURE",
-    10: "CENTER",
-    11: "FSS",
-    12: "AWOS",
-    13: "ASOS",
-    14: "CPT",
-    15: "GCO"
-};
-
-function onFreq(com1: number, freqs: { freqType: number, hz: number, name: string }[]) {
-    const hit = freqs.find(f => Math.abs(f.hz  / 1e6 - com1) < 0.006);
-
-    return hit ? {
-        role: FREQUENCY_TYPES[hit.freqType],
-        hz: hit.hz / 1e6,
-        name: hit.name
-    } : null;
-}
-
-function findFreqs(freqType: number, freqs: { freqType: number, hz: number, name: string }[]) {
-    return freqs.filter(f => f.freqType === freqType);
 }

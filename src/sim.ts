@@ -1,6 +1,8 @@
-import { open, Protocol, SimConnectConnection, SimConnectConstants, SimConnectDataType, SimConnectPeriod, FacilityDataType } from "node-simconnect";
+import { open, Protocol, SimConnectConnection, SimConnectConstants, SimConnectDataType, SimConnectPeriod, FacilityDataType, FacilityListType } from "node-simconnect";
 import { appendFileSync } from "node:fs";
 import { structureAirportData } from "./utils/airports";
+import { knownFreq } from "./utils/facility";
+import { distNm } from "./utils/math";
 
 const trace = (msg: string) => appendFileSync("sim.log", msg + "\n");
 trace("sim log started");
@@ -28,6 +30,10 @@ const FLOATS_ID = 1;
 const STRINGS_ID = 2;
 
 const FACILITY_ID = 100;
+const FACILITY_MINIMAL_ID = 101;
+
+const AIRPORT_LIST_ID = 200;
+
 let facility_field_ids = new Map<number, string>();
 
 let activeClose: (() => void) | undefined;
@@ -36,6 +42,8 @@ export function closeSim() {
 }
 
 const RUNWAY_DESIGNATORS = ["", "L", "R", "C", "W", "A", "B"];
+
+let nearby_airports = new Map<string, { icao: string, lat: number, long: number }>();
 
 export async function connectSim(onUpdate: (newState: any) => void) {
     let handle: SimConnectConnection | undefined;
@@ -64,6 +72,7 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
     handle.requestDataOnSimObject(FLOATS_ID, FLOATS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND);
     handle.requestDataOnSimObject(STRINGS_ID, STRINGS_ID, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SECOND, 0, 0, 5);
+    handle.subscribeToFacilities(FacilityListType.AIRPORT, AIRPORT_LIST_ID);
 
     [
         "OPEN AIRPORT",
@@ -95,6 +104,24 @@ export async function connectSim(onUpdate: (newState: any) => void) {
         facility_field_ids.set(handle.addToFacilityDefinition(FACILITY_ID, name), name);
     });
 
+    [
+        "OPEN AIRPORT",
+            "LATITUDE", "LONGITUDE", "ALTITUDE", "ICAO",
+
+            "OPEN FREQUENCY",
+                "TYPE", "FREQUENCY", "NAME",
+            "CLOSE FREQUENCY",
+
+            "OPEN RUNWAY",
+                "LATITUDE", "LONGITUDE", "HEADING", "LENGTH", "WIDTH",
+                "PRIMARY_NUMBER", "SECONDARY_NUMBER",
+                "PRIMARY_DESIGNATOR", "SECONDARY_DESIGNATOR",
+            "CLOSE RUNWAY",
+        "CLOSE AIRPORT"
+    ].forEach((name) => {
+        facility_field_ids.set(handle.addToFacilityDefinition(FACILITY_MINIMAL_ID, name), name);
+    });
+
     let state = {};
 
     handle.on("simObjectData", (e) => {
@@ -119,12 +146,58 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
         state = { ...state, ...patch };
         onUpdate(state);
+        maybeLoadAirports();
     });
 
     let facility_nodes = new Map<number, any>();
+    let pending: { icao: string; full: boolean } | null = null;
+    
+    function request(icao: string, full: boolean) {
+        pending = { icao, full };
+        facility_nodes.clear();
+
+        handle!.requestFacilityData(
+            full ? FACILITY_ID : FACILITY_MINIMAL_ID,
+            full ? FACILITY_ID : FACILITY_MINIMAL_ID,
+            icao
+        );
+    }
+
+    function maybeLoadAirports() {
+        if (!state || !state.latitude || pending) return;
+
+        const has = state.airports ?? {};
+        const searching = state.com1 >= 118 && state.com1 <= 137 && !knownFreq(state.com1, Object.values(has));
+        const longSpan = 1.1 / Math.max(0.15, Math.cos(state.latitude * Math.PI / 180));
+
+        let best = null;
+        let bestDistance = 60;
+        let bestFull = false;
+
+        for (const airport of nearby_airports.values()) {
+            if (Math.abs(airport.lat - state.latitude) > 1.1) continue;
+            if (Math.abs(airport.long - state.longitude) > longSpan) continue;
+            
+            const distance = distNm(state.latitude, state.longitude, airport.lat, airport.long);
+            if (distance >= bestDistance) continue;
+
+            const cached = has[airport.icao];
+            const wantsFull = distance < 10 && state.aglAlt < 5000 && !cached?.full;
+            const needsMinimal = searching && !cached;
+            if (!wantsFull && !needsMinimal) continue;
+
+            best = airport;
+            bestDistance = distance;
+            bestFull = wantsFull;
+        }
+
+        if (best) {
+            request(best.icao, bestFull);
+        }
+    }
 
     handle.on("facilityData", (e) => {
-        if (e.userRequestId !== FACILITY_ID) return;
+        if (e.userRequestId !== FACILITY_ID && e.userRequestId !== FACILITY_MINIMAL_ID) return;
 
         const node: any = { type: e.type, children: [] };
 
@@ -180,8 +253,28 @@ export async function connectSim(onUpdate: (newState: any) => void) {
     });
 
     handle.on("facilityDataEnd", (e) => {
-        const data = structureAirportData(facility_nodes);
+        if (!pending) return;
+        if (e.userRequestId !== FACILITY_ID && e.userRequestId !== FACILITY_MINIMAL_ID) return;
+
+        const { icao, full } = pending;
+        const data = { ...structureAirportData(facility_nodes), full };
         facility_nodes.clear();
+        pending = null;
+
+        trace(`facility data loaded for ${icao}`);
+
+        state = { ...state, airports: { ...state.airports, [icao]: data } };
+        onUpdate(state);
+    });
+
+    handle.on("airportList", (e) => {
+        for (const airport of e.airports) {
+            nearby_airports.set(airport.icao, { 
+                icao: airport.icao,
+                lat: airport.latitude,
+                long: airport.longitude
+            });
+        }
     });
 
     handle.on("exception", (err) => {
@@ -205,6 +298,8 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
         handle?.clearDataDefinition(FLOATS_ID);
         handle?.clearDataDefinition(STRINGS_ID);
+
+        handle?.unSubscribeToFacilities(FacilityListType.AIRPORT);
 
         handle?.close();
     }
