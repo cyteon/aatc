@@ -4,112 +4,149 @@ import { useEffect, useState } from "react";
 import { connectSim } from "./sim";
 import { useScreenSize } from "fullscreen-ink";
 import { resolveFacility } from "./utils/facility";
+import { createAtc } from "./atc";
 
 const OTHER_ROWS = 5;
 
-function fitLog(log: { sender: string, message: string }[], rows: number, width: number) {
-    const out = [];
-    let used = 0;
+function fitLog(
+  log: { sender: string; message: string }[],
+  rows: number,
+  width: number,
+) {
+  const out = [];
+  let used = 0;
 
-    for (let i = log.length - 1; i >= 0; i--) {
-        const length = log[i]!.sender.length + log[i]!.message.length + 3;
-        const lines = Math.max(1, Math.ceil(length / width));
+  for (let i = log.length - 1; i >= 0; i--) {
+    const length = log[i]!.sender.length + log[i]!.message.length + 3;
+    const lines = Math.max(1, Math.ceil(length / width));
 
-        if (used + lines > rows) break;
-        out.unshift(log[i]);
-        used += lines;
-    }
+    if (used + lines > rows) break;
+    out.unshift(log[i]);
+    used += lines;
+  }
 
-    return out;
+  return out;
 }
 
 export default function App() {
-    const { exit } = useApp();
+  const { exit } = useApp();
 
-    useEffect(() => {
-        process.stdout.write('\x1b[?25l');
+  useEffect(() => {
+    process.stdout.write("\x1b[?25l");
 
-        return () => {
-            process.stdout.write('\x1b[?25h');
-        };
-    }, []);
+    return () => {
+      process.stdout.write("\x1b[?25h");
+    };
+  }, []);
 
-    const [state, setState] = useState(null);
+  const [state, setState] = useState(null);
 
-    useEffect(() => {
-        connectSim(setState).catch((e) => {
-            setState({ simError: e.message });
-        });
-    },  []);
+  useEffect(() => {
+    connectSim(setState).catch((e) => {
+      setState({ simError: e.message });
+    });
+  }, []);
 
-    const [log, setLog] = useState<{ sender: string, message: string }[]>([]);
-    const [input, setInput] = useState("");
+  const [atc] = useState(() => createAtc());
 
-    function handleSubmit() {
-        setLog([...log, { sender: "You", message: input }]);
-        setInput("");
-    }
+  const [log, setLog] = useState<{ sender: string; message: string }[]>([]);
+  const [input, setInput] = useState("");
 
-    const { height, width } = useScreenSize();
-    const visible = fitLog(log, height - OTHER_ROWS, width);
+  function handleSubmit() {
+    if (!input.trim() || !state) return;
+    const text = input.trim();
 
-    return (
-        <Box flexDirection="column" width="100%">
-            <Box backgroundColor="#4169E1" paddingX={1} flexDirection="column">
-                <Box>
-                    <Box marginRight={2}>
-                        <Text color="#0B1026">CALLSIGN </Text>
-                        <Text bold>{state?.callsign ?? "---"}</Text>
-                    </Box>
+    setLog([...log, { sender: "You", message: input }]);
+    setInput("");
 
-                    <Box marginRight={2}>
-                        <Text color="#0B1026">SQUAWK </Text>
-                        <Text  bold>{state?.squawk ?? "---"}</Text>
-                    </Box>
+    atc.send(text, state).then((response) => {
+      if (!response) return;
+      setLog((log) => [...log, { sender: response.facility, message: response.message }]);
+    })
+  }
 
-                    <Box>
-                        <Text color="#0B1026">COM1 </Text>
-                        <Text  bold>{state?.com1 ?? "---"} ({ resolveFacility(state, Object.values(state?.airports ?? {}))?.name ?? "no contact" })</Text>
-                    </Box>
+  const { height, width } = useScreenSize();
+  const visible = fitLog(log, height - OTHER_ROWS, width);
 
-                    {state?.simError && (
-                        <Box marginLeft={2}>
-                            <Text color="red">ERROR </Text>
-                            <Text bold>{state.simError}</Text>
-                        </Box>
-                    )}
-                </Box>
+  return (
+    <Box flexDirection="column" width="100%">
+      <Box backgroundColor="#4169E1" paddingX={1} flexDirection="column">
+        <Box>
+          <Box marginRight={2}>
+            <Text color="#0B1026">CALLSIGN </Text>
+            <Text bold>{state?.callsign ?? "---"}</Text>
+          </Box>
 
-                <Box>
-                    <Box marginRight={2}>
-                        <Text color="#0B1026">ALT </Text>
-                        <Text bold>{state?.indicatedAlt ? Math.round(state?.indicatedAlt) : "---"}{state?.indicatedAlt ? "ft" : ""}</Text>
-                    </Box>
+          <Box marginRight={2}>
+            <Text color="#0B1026">SQUAWK </Text>
+            <Text bold>{state?.squawk ?? "---"}</Text>
+          </Box>
 
-                    <Box marginRight={2}>
-                        <Text color="#0B1026">HDG </Text>
-                        <Text  bold>{state?.magHeading ? Math.round(state?.magHeading) : "---"}{state?.magHeading ? "°" : ""}</Text>
-                    </Box>
+          <Box>
+            <Text color="#0B1026">COM1 </Text>
+            <Text bold>
+              {state?.com1 ?? "---"} (
+              {resolveFacility(state, Object.values(state?.airports ?? {}))
+                ?.name ?? "no contact"}
+              )
+            </Text>
+          </Box>
 
-                    <Box>
-                        <Text color="#0B1026">IAS </Text>
-                        <Text  bold>{state?.iasKt ? Math.round(state?.iasKt) : "---"}{state?.iasKt ? "kt" : ""}</Text>
-                    </Box>
-                </Box>
+          {state?.simError && (
+            <Box marginLeft={2}>
+              <Text color="red">ERROR </Text>
+              <Text bold>{state.simError}</Text>
             </Box>
-
-            <Box flexDirection="column" flexGrow={1} justifyContent="flex-end" marginY={1} overflow="none">
-                {visible.map((m, i) => (
-                    <Box key={i}>
-                        <Text color={m.sender === "You" ? "white" : "yellowBright"}>[{m.sender}] {m.message}</Text>
-                    </Box>
-                ))}
-            </Box>
-
-            <Box flexShrink={0}>
-                <Text color="#4169E1">transmit&gt; </Text>
-                <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
-            </Box>
+          )}
         </Box>
-    )
+
+        <Box>
+          <Box marginRight={2}>
+            <Text color="#0B1026">ALT </Text>
+            <Text bold>
+              {state?.indicatedAlt ? Math.round(state?.indicatedAlt) : "---"}
+              {state?.indicatedAlt ? "ft" : ""}
+            </Text>
+          </Box>
+
+          <Box marginRight={2}>
+            <Text color="#0B1026">HDG </Text>
+            <Text bold>
+              {state?.magHeading ? Math.round(state?.magHeading) : "---"}
+              {state?.magHeading ? "°" : ""}
+            </Text>
+          </Box>
+
+          <Box>
+            <Text color="#0B1026">IAS </Text>
+            <Text bold>
+              {state?.iasKt ? Math.round(state?.iasKt) : "---"}
+              {state?.iasKt ? "kt" : ""}
+            </Text>
+          </Box>
+        </Box>
+      </Box>
+
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        justifyContent="flex-end"
+        marginY={1}
+        overflow="none"
+      >
+        {visible.map((m, i) => (
+          <Box key={i}>
+            <Text color={m.sender === "You" ? "white" : "yellowBright"}>
+              [{m.sender}] {m.message}
+            </Text>
+          </Box>
+        ))}
+      </Box>
+
+      <Box flexShrink={0}>
+        <Text color="#4169E1">transmit&gt; </Text>
+        <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+      </Box>
+    </Box>
+  );
 }

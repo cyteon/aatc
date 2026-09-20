@@ -4,7 +4,7 @@ import { structureAirportData } from "./utils/airports";
 import { knownFreq } from "./utils/facility";
 import { distNm } from "./utils/math";
 
-const trace = (msg: string) => appendFileSync("sim.log", msg + "\n");
+export const trace = (msg: string) => appendFileSync("sim.log", msg + "\n");
 trace("sim log started");
 
 const FLOATS = [
