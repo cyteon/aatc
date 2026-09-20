@@ -151,7 +151,7 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
     let facility_nodes = new Map<number, any>();
     let pending: { icao: string; full: boolean } | null = null;
-    
+
     function request(icao: string, full: boolean) {
         pending = { icao, full };
         facility_nodes.clear();
@@ -177,7 +177,7 @@ export async function connectSim(onUpdate: (newState: any) => void) {
         for (const airport of nearby_airports.values()) {
             if (Math.abs(airport.lat - state.latitude) > 1.1) continue;
             if (Math.abs(airport.long - state.longitude) > longSpan) continue;
-            
+
             const distance = distNm(state.latitude, state.longitude, airport.lat, airport.long);
             if (distance >= bestDistance) continue;
 
@@ -246,7 +246,7 @@ export async function connectSim(onUpdate: (newState: any) => void) {
         }
 
         facility_nodes.set(e.uniqueRequestId, node);
-        
+
         if (e.uniqueRequestId !== e.parentUniqueRequestId) {
             facility_nodes.get(e.parentUniqueRequestId)?.children.push(node);
         }
@@ -269,7 +269,7 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
     handle.on("airportList", (e) => {
         for (const airport of e.airports) {
-            nearby_airports.set(airport.icao, { 
+            nearby_airports.set(airport.icao, {
                 icao: airport.icao,
                 lat: airport.latitude,
                 long: airport.longitude

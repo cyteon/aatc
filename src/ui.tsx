@@ -35,7 +35,7 @@ export default function App() {
     }, []);
 
     const [state, setState] = useState(null);
-    
+
     useEffect(() => {
         connectSim(setState).catch((e) => {
             setState({ simError: e.message });

@@ -66,7 +66,7 @@ export function findFreqs(freqType: number, freqs: Freq[]) {
 }
 
 export function knownFreq(com1: number, airports: any[]) {
-    return handoffs.some(h => Math.abs(h.mhz - com1) < 0.006) || 
+    return handoffs.some(h => Math.abs(h.mhz - com1) < 0.006) ||
            airports.some(ap => ap.frequencies?.some((f: Freq) => Math.abs(f.hz / 1e6 - com1) < 0.006));
 }
 
