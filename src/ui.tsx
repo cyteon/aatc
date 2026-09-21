@@ -3,7 +3,6 @@ import TextInput from "ink-text-input";
 import { useEffect, useState } from "react";
 import { connectSim } from "./sim";
 import { useScreenSize } from "fullscreen-ink";
-import { resolveFacility } from "./utils/facility";
 import { createAtc } from "./atc";
 
 const OTHER_ROWS = 5;
@@ -86,7 +85,7 @@ export default function App() {
             <Text color="#0B1026">COM1 </Text>
             <Text bold>
               {state?.com1 ?? "---"} (
-              {resolveFacility(state, Object.values(state?.airports ?? {}))
+              {atc.facility(state)
                 ?.name ?? "no contact"}
               )
             </Text>

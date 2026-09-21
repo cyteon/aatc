@@ -28,6 +28,8 @@ function generateSquawk(): string {
   }
 }
 
+export type Handoff = { mhz: number, name: string };
+
 export function createAtc() {
   const provider = createOpenAI({
       baseURL: process.env.OPENAI_BASE_URL,
@@ -50,6 +52,8 @@ export function createAtc() {
       role: "user" | "assistant";
       content: string;
   }[] = [];
+
+  let handoffs: { mhz: number; name: string }[] = [];
 
   function send(text: string, state: any) {
     trace("send: " + text);
@@ -83,7 +87,7 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
 
   async function prompt(text: string, state: any) {
     const airports = Object.values(state?.airports ?? {});
-    const facility = resolveFacility(state, airports);
+    const facility = resolveFacility(state, airports, handoffs);
     if (!facility) return null;
 
     const airport = (facility.icao && state.airports[facility.icao]) || nearestAirport(state);
@@ -117,10 +121,23 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
           inputSchema: z.object({
             squawk: z.string().optional(),
             flightPlanClearance: z.enum(["NOT CLEARED", "IFR", "VFR"]).optional(),
+            runway: z.string().optional(),
+            speed: z.number().nullable().optional().describe("knots, null to cancel"),
+            handoffFreq: z.number().optional().describe("mhz"),
+            handoffName: z.string().optional().describe("name of facility handing off to")
           }),
           execute: async (input) => {
             if (input.squawk && !/^[0-7]{4}$/.test(input.squawk)) {
               return { error: "invalid squawk code" };
+            }
+
+            if (input.handoffFreq && !input.handoffName) {
+              return { error: "handoffName is required when handoffFreq is provided" };
+            }
+
+            if (input.handoffFreq && input.handoffName) {
+              handoffs.push({ mhz: input.handoffFreq, name: input.handoffName });
+              trace(`handoffs: ${JSON.stringify(handoffs)}`)
             }
 
             assigned = { ...assigned, ...input };
@@ -189,5 +206,5 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     return compiled;
   }
 
-  return { send }
+  return { send, facility: (state: any) => resolveFacility(state, Object.values(state?.airports ?? {}), handoffs) }
 }
