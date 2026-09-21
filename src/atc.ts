@@ -42,7 +42,9 @@ export function createAtc() {
       return null;
   });
 
-  let assigned: Record<string, any> = {};
+  let assigned: Record<string, any> = {
+    flightPlanClearance: "NOT CLEARED",
+  };
 
   let history: {
       role: "user" | "assistant";
@@ -84,9 +86,9 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     const facility = resolveFacility(state, airports);
     if (!facility) return null;
 
-    const closestAirport = nearestAirport(state);
+    const airport = (facility.icao && state.airports[facility.icao]) || nearestAirport(state);
 
-    const compiled = compileState(state, facility.name, closestAirport, await flightPlan);
+    const compiled = compileState(state, facility.name, airport, await flightPlan);
     trace("compiled:\n" + compiled);
 
     history.push({ role: "user", content: compiled + "\n\n[Transmission]\n" + text });
@@ -107,6 +109,22 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
           execute: async () => {
             if (!assigned.squawk) assigned.squawk = generateSquawk();
             return { squawk: assigned.squawk };
+          }
+        }),
+
+        recordInstruction: tool({
+          description: "Record the instructions you just transmitted, use this in the same turn as when you issue the instruction",
+          inputSchema: z.object({
+            squawk: z.string().optional(),
+            flightPlanClearance: z.enum(["NOT CLEARED", "IFR", "VFR"]).optional(),
+          }),
+          execute: async (input) => {
+            if (input.squawk && !/^[0-7]{4}$/.test(input.squawk)) {
+              return { error: "invalid squawk code" };
+            }
+
+            assigned = { ...assigned, ...input };
+            return { success: true };
           }
         })
       }
@@ -137,7 +155,7 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     return closest;
   }
 
-  function compileState(state: any, controller: string, closestAirport: any, flightPlan: FlightPlan | null) {
+  function compileState(state: any, controller: string, airport: any, flightPlan: FlightPlan | null) {
     let compiled = `
 
     Facility name: ${controller}.
@@ -154,22 +172,19 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     [Assignements]
     ${JSON.stringify(assigned)}
 
-    [Closest Airport]
-    ICAO: ${closestAirport?.icao}
-    Latitude: ${closestAirport?.lat.toFixed(6)}
-    Longitude: ${closestAirport?.long.toFixed(6)}
-    Altitude (AMSL): ${Math.round(closestAirport?.alt)} ft
-    Distance: ${distNm(state?.latitude, state?.longitude, closestAirport?.lat, closestAirport?.long).toFixed(2)} nm
+    [Current Airport]
+    ICAO: ${airport?.icao}
+    Latitude: ${airport?.lat.toFixed(6)}
+    Longitude: ${airport?.long.toFixed(6)}
+    Altitude (AMSL): ${Math.round(airport?.alt)} ft
+    Distance: ${distNm(state?.latitude, state?.longitude, airport?.lat, airport?.long).toFixed(2)} nm
 
-    [${closestAirport?.icao} Frequencies]
+    [${airport?.icao} Runways]
+    ${airport?.runways?.map((r: any) => `- ${r.ids[0]} / ${r.ids[1]} (${r.length} ft x ${r.width} ft, heading ${r.hdg}°)`).join("\n\t")}
 
+    [${airport?.icao} Frequencies]
+    ${airport?.frequencies?.map((f: any) => `- ${f.name} (${(f.hz / 1e6).toFixed(3)} MHz) [Type: ${FREQUENCY_TYPES[f.freqType]}]`).join("\n\t")}
     `.trim();
-
-    if (closestAirport.frequencies) {
-      for (const freq of closestAirport.frequencies) {
-        compiled += `\n\t- ${freq.name} (${(freq.hz / 1e6).toFixed(3)} MHz) [Type: ${FREQUENCY_TYPES[freq.freqType]}]`;
-      }
-    }
 
     return compiled;
   }

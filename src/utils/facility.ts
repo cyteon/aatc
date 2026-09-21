@@ -40,8 +40,9 @@ export function resolveFacility(state: any, airports: any[]) {
         if (nm > (RANGE_NM[freq.freqType] ?? 25)) continue;
 
         return {
-            name: facilityName(freq, ap.icao),
-            freqType: freq.freqType,
+          name: facilityName(freq, ap.icao),
+          freqType: freq.freqType,
+          icao: ap.icao,
         }
     }
 
