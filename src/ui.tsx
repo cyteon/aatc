@@ -60,8 +60,11 @@ export default function App() {
 
     atc.send(text, state).then((response) => {
       if (!response) return;
-      setLog((log) => [...log, { sender: response.facility, message: response.message }]);
-    })
+      setLog((log) => [
+        ...log,
+        { sender: response.facility, message: response.message },
+      ]);
+    });
   }
 
   const { height, width } = useScreenSize();
@@ -85,9 +88,7 @@ export default function App() {
             <Text color="#0B1026">COM1 </Text>
             <Text bold>
               {state?.com1 ?? "---"} (
-              {atc.facility(state)
-                ?.name ?? "no contact"}
-              )
+              {atc.facility(state)?.name ?? "no contact"})
             </Text>
           </Box>
 

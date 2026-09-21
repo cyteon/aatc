@@ -23,25 +23,27 @@ When handing the pilot over to another frequency always include the frequency in
 const RESERVED_SQUAWKS = ["0000", "1200", "7500", "7600", "7700"];
 function generateSquawk(): string {
   while (true) {
-    const squawk = Array.from({ length: 4 }, () => Math.floor(Math.random() * 8)).join("");
+    const squawk = Array.from({ length: 4 }, () =>
+      Math.floor(Math.random() * 8),
+    ).join("");
     if (!RESERVED_SQUAWKS.includes(squawk)) return squawk;
   }
 }
 
-export type Handoff = { mhz: number, name: string };
+export type Handoff = { mhz: number; name: string };
 
 export function createAtc() {
   const provider = createOpenAI({
-      baseURL: process.env.OPENAI_BASE_URL,
-      apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_BASE_URL,
+    apiKey: process.env.OPENAI_API_KEY,
   });
   const model = provider(process.env.OPENAI_MODEL!);
 
   let queue: Promise<any> = Promise.resolve();
 
   let flightPlan = getSimbriefFlightPlan().catch((e) => {
-      trace("error fetching simbrief flight plan: " + e.message);
-      return null;
+    trace("error fetching simbrief flight plan: " + e.message);
+    return null;
   });
 
   let assigned: Record<string, any> = {
@@ -49,8 +51,8 @@ export function createAtc() {
   };
 
   let history: {
-      role: "user" | "assistant";
-      content: string;
+    role: "user" | "assistant";
+    content: string;
   }[] = [];
 
   let handoffs: { mhz: number; name: string }[] = [];
@@ -59,7 +61,7 @@ export function createAtc() {
     trace("send: " + text);
 
     const run = queue.then(() => prompt(text, state));
-    queue = run.catch(() => { });
+    queue = run.catch(() => {});
 
     return run;
   }
@@ -68,7 +70,9 @@ export function createAtc() {
     const plan = await flightPlan;
     if (!plan) return SYSTEM_PROMPT;
 
-    return SYSTEM_PROMPT + `\n
+    return (
+      SYSTEM_PROMPT +
+      `\n
 [Filed Flight Plan]
 ${plan.rules} from ${plan.origin} to ${plan.destination}, alternate is ${plan.alternate}
 ${plan.aircraft} with requested cruise alt ${plan.cruiseAlt} ft
@@ -82,7 +86,8 @@ Transition altitude is ${plan.transAlt} ft, transition level is ${plan.transLeve
 Departure METAR: ${plan.departureMetar ?? "not available"}
 Arrival METAR: ${plan.arrivalMetar ?? "not available"}
 
-    `.trimEnd();
+    `.trimEnd()
+    );
   }
 
   async function prompt(text: string, state: any) {
@@ -90,12 +95,21 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     const facility = resolveFacility(state, airports, handoffs);
     if (!facility) return null;
 
-    const airport = (facility.icao && state.airports[facility.icao]) || nearestAirport(state);
+    const airport =
+      (facility.icao && state.airports[facility.icao]) || nearestAirport(state);
 
-    const compiled = compileState(state, facility.name, airport, await flightPlan);
+    const compiled = compileState(
+      state,
+      facility.name,
+      airport,
+      await flightPlan,
+    );
     trace("compiled:\n" + compiled);
 
-    history.push({ role: "user", content: compiled + "\n\n[Transmission]\n" + text });
+    history.push({
+      role: "user",
+      content: compiled + "\n\n[Transmission]\n" + text,
+    });
 
     const system = await systemPrompt();
     trace("system prompt:\n" + system);
@@ -113,18 +127,28 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
           execute: async () => {
             if (!assigned.squawk) assigned.squawk = generateSquawk();
             return { squawk: assigned.squawk };
-          }
+          },
         }),
 
         recordInstruction: tool({
-          description: "Record the instructions you just transmitted, use this in the same turn as when you issue the instruction",
+          description:
+            "Record the instructions you just transmitted, use this in the same turn as when you issue the instruction",
           inputSchema: z.object({
             squawk: z.string().optional(),
-            flightPlanClearance: z.enum(["NOT CLEARED", "IFR", "VFR"]).optional(),
+            flightPlanClearance: z
+              .enum(["NOT CLEARED", "IFR", "VFR"])
+              .optional(),
             runway: z.string().optional(),
-            speed: z.number().nullable().optional().describe("knots, null to cancel"),
+            speed: z
+              .number()
+              .nullable()
+              .optional()
+              .describe("knots, null to cancel"),
             handoffFreq: z.number().optional().describe("mhz"),
-            handoffName: z.string().optional().describe("name of facility handing off to")
+            handoffName: z
+              .string()
+              .optional()
+              .describe("name of facility handing off to"),
           }),
           execute: async (input) => {
             if (input.squawk && !/^[0-7]{4}$/.test(input.squawk)) {
@@ -132,19 +156,24 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
             }
 
             if (input.handoffFreq && !input.handoffName) {
-              return { error: "handoffName is required when handoffFreq is provided" };
+              return {
+                error: "handoffName is required when handoffFreq is provided",
+              };
             }
 
             if (input.handoffFreq && input.handoffName) {
-              handoffs.push({ mhz: input.handoffFreq, name: input.handoffName });
-              trace(`handoffs: ${JSON.stringify(handoffs)}`)
+              handoffs.push({
+                mhz: input.handoffFreq,
+                name: input.handoffName,
+              });
+              trace(`handoffs: ${JSON.stringify(handoffs)}`);
             }
 
             assigned = { ...assigned, ...input };
             return { success: true };
-          }
-        })
-      }
+          },
+        }),
+      },
     });
 
     const message = result?.text?.trim() ?? "(no reply)";
@@ -153,7 +182,7 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     return {
       facility: facility.name,
       message,
-    }
+    };
   }
 
   function nearestAirport(state: any) {
@@ -161,7 +190,12 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     let closestNm = Infinity;
 
     for (const airport of Object.values(state?.airports ?? {})) {
-      const nm = distNm(state?.latitude, state?.longitude, airport.lat, airport.long);
+      const nm = distNm(
+        state?.latitude,
+        state?.longitude,
+        airport.lat,
+        airport.long,
+      );
 
       if (nm < closestNm) {
         closest = airport;
@@ -172,7 +206,12 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     return closest;
   }
 
-  function compileState(state: any, controller: string, airport: any, flightPlan: FlightPlan | null) {
+  function compileState(
+    state: any,
+    controller: string,
+    airport: any,
+    flightPlan: FlightPlan | null,
+  ) {
     let compiled = `
 
     Facility name: ${controller}.
@@ -206,5 +245,9 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     return compiled;
   }
 
-  return { send, facility: (state: any) => resolveFacility(state, Object.values(state?.airports ?? {}), handoffs) }
+  return {
+    send,
+    facility: (state: any) =>
+      resolveFacility(state, Object.values(state?.airports ?? {}), handoffs),
+  };
 }
