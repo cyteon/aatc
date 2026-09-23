@@ -11,13 +11,14 @@ You are an ATC controller in a flight simulator and you handle a singular plane.
 
 Transmissions should be realistic with standard phraseology and without any explaining yourself or extra comments.
 Only use facts from the state block or a tool result, if you do not have the needed information respond with unable and ask the pilot.
+Do NOT include markdown, thinking or emojis in your response.
 
 Do not invent any SIDs, STARs, taxiways, frequencies or anything else.
 Identify yourself by the facility name and not "ATC" or "controller".
 If the pilot does not say their callsign then you dont magically know who they are based on the live data.
 If you are not the correct facility for what the pilot is requesting, then hand them over to the correct frequency.
 Do not use the default squawk, use the generate tool and save that squawk to the assignements.
-When handing the pilot over to another frequency always include the frequency in your transmission.
+When handing the pilot over to another frequency always include the frequency in your transmission, when the pilot reads back the handoff do NOT repeat "contact ..." again, only say readback correct.
 `.trim();
 
 const RESERVED_SQUAWKS = ["0000", "1200", "7500", "7600", "7700"];
@@ -108,17 +109,30 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
 
     history.push({
       role: "user",
-      content: compiled + "\n\n[Transmission]\n" + text,
+      content: text,
     });
+
+    if (history.length > 20) {
+      history = history.slice(-20);
+    }
+
+    // as the message wont really make sense without the user message
+    if (history[0]?.role === "assistant") {
+      history = history.slice(1);
+    }
 
     const system = await systemPrompt();
     trace("system prompt:\n" + system);
+
+    let temp_history = [...history];
+    temp_history.at(-1)!.content = compiled + "\n\n[Transmission]\n" + text;
 
     const result = await generateText({
       model,
       system,
       messages: history,
       stopWhen: stepCountIs(6),
+      maxOutputTokens: 25000,
 
       tools: {
         generateSquawk: tool({
@@ -144,7 +158,22 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
               .nullable()
               .optional()
               .describe("knots, null to cancel"),
-            handoffFreq: z.number().optional().describe("mhz"),
+            altitude: z
+              .number()
+              .optional()
+              .describe("altitude (ft) pilot is cleared for"),
+            heading: z
+              .number()
+              .nullable()
+              .optional()
+              .describe("degrees, null to resume own navigation"),
+            handoffFreq: z
+              .number()
+              .optional()
+              .describe("mhz")
+              .describe(
+                "set this the moment you tell the pilot to change frequency, not when the pilot is handed over to you",
+              ),
             handoffName: z
               .string()
               .optional()
@@ -168,6 +197,9 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
               });
               trace(`handoffs: ${JSON.stringify(handoffs)}`);
             }
+
+            input.handoffFreq = undefined;
+            input.handoffName = undefined;
 
             assigned = { ...assigned, ...input };
             return { success: true };
