@@ -12,6 +12,7 @@ import { appendFileSync } from "node:fs";
 import { structureAirportData } from "./utils/airports";
 import { knownFreq } from "./utils/facility";
 import { distNm } from "./utils/math";
+import { ensureSectors } from "./utils/sectors";
 
 export const trace = (msg: string) => appendFileSync("sim.log", msg + "\n");
 trace("sim log started");
@@ -61,6 +62,8 @@ let nearby_airports = new Map<
   string,
   { icao: string; lat: number; long: number }
 >();
+
+await ensureSectors("EN");
 
 export async function connectSim(onUpdate: (newState: any) => void) {
   let handle: SimConnectConnection | undefined;
@@ -116,49 +119,33 @@ export async function connectSim(onUpdate: (newState: any) => void) {
   );
   handle.subscribeToFacilities(FacilityListType.AIRPORT, AIRPORT_LIST_ID);
 
+  // prettier-ignore
   [
     "OPEN AIRPORT",
-    "LATITUDE",
-    "LONGITUDE",
-    "ALTITUDE",
-    "ICAO",
+      "LATITUDE", "LONGITUDE", "ALTITUDE", "ICAO",
 
-    "OPEN FREQUENCY",
-    "TYPE",
-    "FREQUENCY",
-    "NAME",
-    "CLOSE FREQUENCY",
+      "OPEN FREQUENCY",
+        "TYPE", "FREQUENCY", "NAME",
+      "CLOSE FREQUENCY",
 
-    "OPEN RUNWAY",
-    "LATITUDE",
-    "LONGITUDE",
-    "HEADING",
-    "LENGTH",
-    "WIDTH",
-    "PRIMARY_NUMBER",
-    "SECONDARY_NUMBER",
-    "PRIMARY_DESIGNATOR",
-    "SECONDARY_DESIGNATOR",
-    "CLOSE RUNWAY",
+      "OPEN RUNWAY",
+        "LATITUDE", "LONGITUDE", "HEADING",
+        "LENGTH", "WIDTH",  "PRIMARY_NUMBER",
+        "SECONDARY_NUMBER", "PRIMARY_DESIGNATOR",
+        "SECONDARY_DESIGNATOR",
+      "CLOSE RUNWAY",
 
-    "OPEN TAXI_POINT",
-    "TYPE",
-    "ORIENTATION",
-    "BIAS_X",
-    "BIAS_Z",
-    "CLOSE TAXI_POINT",
+      "OPEN TAXI_POINT",
+        "TYPE", "ORIENTATION", "BIAS_X", "BIAS_Z",
+      "CLOSE TAXI_POINT",
 
-    "OPEN TAXI_NAME",
-    "NAME",
-    "CLOSE TAXI_NAME",
+      "OPEN TAXI_NAME",
+        "NAME",
+      "CLOSE TAXI_NAME",
 
-    "OPEN TAXI_PATH",
-    "TYPE",
-    "START",
-    "END",
-    "WIDTH",
-    "NAME_INDEX",
-    "CLOSE TAXI_PATH",
+      "OPEN TAXI_PATH",
+        "TYPE", "START", "END", "WIDTH", "NAME_INDEX",
+      "CLOSE TAXI_PATH",
     "CLOSE AIRPORT",
   ].forEach((name) => {
     facility_field_ids.set(
@@ -167,30 +154,23 @@ export async function connectSim(onUpdate: (newState: any) => void) {
     );
   });
 
+  // prettier-ignore
   [
     "OPEN AIRPORT",
-    "LATITUDE",
-    "LONGITUDE",
-    "ALTITUDE",
-    "ICAO",
+      "LATITUDE", "LONGITUDE", "ALTITUDE", "ICAO",
 
-    "OPEN FREQUENCY",
-    "TYPE",
-    "FREQUENCY",
-    "NAME",
-    "CLOSE FREQUENCY",
+      "OPEN FREQUENCY",
+        "TYPE",
+        "FREQUENCY",
+        "NAME",
+      "CLOSE FREQUENCY",
 
-    "OPEN RUNWAY",
-    "LATITUDE",
-    "LONGITUDE",
-    "HEADING",
-    "LENGTH",
-    "WIDTH",
-    "PRIMARY_NUMBER",
-    "SECONDARY_NUMBER",
-    "PRIMARY_DESIGNATOR",
-    "SECONDARY_DESIGNATOR",
-    "CLOSE RUNWAY",
+      "OPEN RUNWAY",
+        "LATITUDE", "LONGITUDE", "HEADING",
+        "LENGTH", "WIDTH", "PRIMARY_NUMBER",
+        "SECONDARY_NUMBER", "PRIMARY_DESIGNATOR",
+        "SECONDARY_DESIGNATOR",
+      "CLOSE RUNWAY",
     "CLOSE AIRPORT",
   ].forEach((name) => {
     facility_field_ids.set(
