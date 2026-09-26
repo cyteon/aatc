@@ -193,6 +193,11 @@ export async function connectSim(onUpdate: (newState: any) => void) {
 
         patch[key as string] = value;
       }
+
+      patch["nearbyPrefixes"] = nearybyPrefixes(
+        patch["latitude"],
+        patch["longitude"],
+      );
     }
 
     if (e.requestID === STRINGS_ID) {
@@ -260,6 +265,22 @@ export async function connectSim(onUpdate: (newState: any) => void) {
     if (best) {
       request(best.icao, bestFull);
     }
+  }
+
+  function nearybyPrefixes(lat: number, lon: number) {
+    const out = new Set<string>();
+    const lonSpan = 2 / Math.max(0.15, Math.cos((lat * Math.PI) / 180));
+
+    for (const airport of nearby_airports.values()) {
+      if (
+        Math.abs(airport.lat - lat) > 2 ||
+        Math.abs(airport.long - lon) > lonSpan
+      )
+        continue;
+      out.add(airport.icao.slice(0, 2));
+    }
+
+    return [...out];
   }
 
   handle.on("facilityData", (e) => {

@@ -2,6 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { FREQUENCY_TYPES, resolveFacility } from "./utils/facility";
 import { distNm } from "./utils/math";
 import { trace } from "./sim";
+import { ensureSectors, sectorAt } from "./utils/sectors";
 import { generateText, stepCountIs, tool } from "ai";
 import getSimbriefFlightPlan, { type FlightPlan } from "./simbrief";
 import z from "zod";
@@ -19,6 +20,7 @@ If the pilot does not say their callsign then you dont magically know who they a
 If you are not the correct facility for what the pilot is requesting, then hand them over to the correct frequency.
 Do not use the default squawk, use the generate tool and save that squawk to the assignements.
 When handing the pilot over to another frequency always include the frequency in your transmission, when the pilot reads back the handoff do NOT repeat "contact ..." again, only say readback correct.
+Messages market [EVENT] are not from the pilot but are automatically generated. If it warrants you telling the pilot something then do so, otherwise return "null"
 `.trim();
 
 const RESERVED_SQUAWKS = ["0000", "1200", "7500", "7600", "7700"];
@@ -47,6 +49,21 @@ export function createAtc() {
     return null;
   });
 
+  flightPlan.then((plan) => {
+    if (!plan) return;
+
+    for (const code of [
+      plan.origin,
+      plan.destination,
+      plan.alternate,
+      ...Object.values(plan.waypoints).map((w) => w.fir),
+    ]) {
+      ensureSectors(code!).catch((e) => {
+        trace("error ensuring sectors for " + code + ": " + e.message);
+      });
+    }
+  });
+
   let assigned: Record<string, any> = {
     flightPlanClearance: "NOT CLEARED",
   };
@@ -65,6 +82,67 @@ export function createAtc() {
     queue = run.catch(() => {});
 
     return run;
+  }
+
+  function getSector(state: any) {
+    if (!state) return null;
+    if (state.latitude == null) return null;
+
+    for (const prefix of state.nearbyPrefixes ?? []) {
+      ensureSectors(prefix).catch((e) => {
+        trace("error ensuring sectors for " + prefix + ": " + e.message);
+      });
+    }
+
+    return sectorAt(state.latitude, state.longitude, state.indicatedAlt);
+  }
+
+  function getFacility(state: any) {
+    const facility = resolveFacility(
+      state,
+      Object.values(state?.airports ?? {}),
+      handoffs,
+    );
+
+    if (facility) return facility;
+
+    const sector = getSector(state);
+    if (sector && Math.abs(sector.mhz - state.com1) < 0.006)
+      return { name: sector.name, freqType: sector.freqType, mhz: sector.mhz };
+  }
+
+  let target: number | null = null;
+  let since = 0;
+  let handedOver = false;
+
+  function tick(state: any) {
+    const sector = getSector(state);
+    const current = getFacility(state);
+
+    const onSector =
+      sector &&
+      (Math.abs(sector.mhz - state.com1) < 0.006 ||
+        (sector.freqType !== 10 && current?.name === sector.name));
+
+    if (!sector || !current || onSector) {
+      target = null;
+      return null;
+    }
+
+    if (target !== sector.mhz) {
+      target = sector.mhz;
+      since = Date.now();
+      handedOver = false;
+      return null;
+    }
+
+    if (Date.now() - since < 5000 || handedOver) return null;
+
+    handedOver = true;
+    return send(
+      `[EVENT] The aircraft has entered airspace controlled by ${sector.name} on ${sector.mhz.toFixed(3)} mhz, hand them over to ${sector.name}`,
+      state,
+    );
   }
 
   async function systemPrompt() {
@@ -92,8 +170,7 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
   }
 
   async function prompt(text: string, state: any) {
-    const airports = Object.values(state?.airports ?? {});
-    const facility = resolveFacility(state, airports, handoffs);
+    const facility = getFacility(state);
     if (!facility) return null;
 
     const airport =
@@ -208,7 +285,9 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
       },
     });
 
-    const message = result?.text?.trim() ?? "(no reply)";
+    let message = result?.text?.trim();
+    if (!message || message.startsWith("null")) return;
+
     history.push({ role: "assistant", content: message });
 
     return {
@@ -279,7 +358,7 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
 
   return {
     send,
-    facility: (state: any) =>
-      resolveFacility(state, Object.values(state?.airports ?? {}), handoffs),
+    tick,
+    getFacility,
   };
 }

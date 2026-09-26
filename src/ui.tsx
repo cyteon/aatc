@@ -1,4 +1,4 @@
-import { Box, Static, Text, useApp } from "ink";
+import { Box, Text, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { useEffect, useState } from "react";
 import { connectSim } from "./sim";
@@ -46,6 +46,19 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!state) return;
+
+    atc.tick(state)?.then((response) => {
+      if (!response) return;
+
+      setLog((log) => [
+        ...log,
+        { sender: response.facility, message: response.message },
+      ]);
+    });
+  }, [state]);
+
   const [atc] = useState(() => createAtc());
 
   const [log, setLog] = useState<{ sender: string; message: string }[]>([]);
@@ -60,6 +73,7 @@ export default function App() {
 
     atc.send(text, state).then((response) => {
       if (!response) return;
+
       setLog((log) => [
         ...log,
         { sender: response.facility, message: response.message },
@@ -88,7 +102,7 @@ export default function App() {
             <Text color="#0B1026">COM1 </Text>
             <Text bold>
               {state?.com1 ?? "---"} (
-              {atc.facility(state)?.name ?? "no contact"})
+              {atc.getFacility(state)?.name ?? "no contact"})
             </Text>
           </Box>
 

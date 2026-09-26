@@ -47,6 +47,24 @@ function dmsToDecimal(s: string) {
   return sign * (degrees + minutes / 60 + seconds / 3600);
 }
 
+function inPolygon(lat: number, lon: number, points: number[][]): boolean {
+  let inside = false;
+
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [yi, xi] = points[i];
+    const [yj, xj] = points[j];
+
+    if (
+      yi > lat !== yj > lat &&
+      lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi
+    ) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
 async function fetchSector(key: string) {
   const response = await fetch(`${CDN}/${key}.json`);
   return await response.json();
@@ -95,8 +113,6 @@ async function loadSector(key: string) {
       });
     }
   }
-
-  trace(`new sectors list: ${JSON.stringify(sectors, null, 2)}`);
 }
 
 function keysFor(code: string) {
@@ -123,4 +139,21 @@ export async function ensureSectors(code: string) {
     loaded.add(key);
     await loadSector(key);
   }
+}
+
+export function sectorAt(
+  lat: number,
+  lon: number,
+  altFt: number,
+): Sector | null {
+  const fl = Math.round(altFt / 100);
+
+  return (
+    sectors.find(
+      (sector) =>
+        fl >= sector.minFl &&
+        fl <= sector.maxFl &&
+        inPolygon(lat, lon, sector.points),
+    ) ?? null
+  );
 }

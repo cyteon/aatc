@@ -23,7 +23,13 @@ export type FlightPlan = {
 
   waypoints: Record<
     string,
-    { lat: number; long: number; alt: number; stage: "CLB" | "CRZ" | "DSC" }
+    {
+      lat: number;
+      long: number;
+      alt: number;
+      stage: "CLB" | "CRZ" | "DSC";
+      fir: string | null;
+    }
   >;
 };
 
@@ -82,6 +88,7 @@ export default async function getSimbriefFlightPlan(): Promise<FlightPlan | null
               long: parseFloat(fix.pos_long),
               alt: parseInt(fix.altitude_feet),
               stage: fix.stage,
+              fir: fix.fir,
             },
           ]),
       ),
