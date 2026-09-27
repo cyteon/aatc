@@ -1,9 +1,9 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { FREQUENCY_TYPES, resolveFacility } from "./utils/facility";
+import { FREQUENCY_TYPES, resolveFacility, type Freq } from "./utils/facility";
 import { distNm } from "./utils/math";
 import { trace } from "./sim";
 import { ensureSectors, sectorAt } from "./utils/sectors";
-import { generateText, stepCountIs, tool } from "ai";
+import { generateText, hasToolCall, stepCountIs, tool } from "ai";
 import getSimbriefFlightPlan, { type FlightPlan } from "./simbrief";
 import z from "zod";
 
@@ -11,8 +11,9 @@ const SYSTEM_PROMPT = `
 You are an ATC controller in a flight simulator and you handle a singular plane.
 
 Transmissions should be realistic with standard phraseology and without any explaining yourself or extra comments.
-Frequencies, SIDs, STARs, runways and taxiways must come from your data and shall never be invented.
-Do NOT include markdown, thinking or emojis in your response.
+Only messages sent via the transmit tool will reach the pilot.
+
+Frequencies, SIDs, STARs and runways must come from your data and shall never be invented, if you do not have taxiway data just tell them to taxi and hold short.
 
 Do not invent any SIDs, STARs, taxiways, runways or frequencies (but do not ask the pilot for a frequency).
 Identify yourself by the facility name and not "ATC" or "controller".
@@ -20,8 +21,8 @@ If the pilot does not say their callsign then you dont magically know who they a
 If you are not the correct facility for what the pilot is requesting, then hand them over to the correct frequency.
 Do not use the default squawk, use the generate tool and save that squawk to the assignements.
 When handing the pilot over to another frequency always include the frequency in your transmission, when the pilot reads back the handoff do NOT repeat "contact ..." again, only say readback correct.
-Do not repeat your instruction after the pilot reading it back, if its a long transmission say readback correct otherwise return "null".
-Messages marked [EVENT] are not from the pilot but are automatically generated. If it warrants you telling the pilot something then do so, otherwise return "null"
+Do not repeat your instruction after the pilot reading it back, if its a long transmission then transmit readback correct, otherwise dont
+Messages marked [EVENT] are not from the pilot but are automatically generated. If it warrants you telling the pilot something then transmit that
 `.trim();
 
 const RESERVED_SQUAWKS = ["0000", "1200", "7500", "7600", "7700"];
@@ -33,8 +34,6 @@ function generateSquawk(): string {
     if (!RESERVED_SQUAWKS.includes(squawk)) return squawk;
   }
 }
-
-export type Handoff = { mhz: number; name: string };
 
 export function createAtc() {
   const provider = createOpenAI({
@@ -77,8 +76,6 @@ export function createAtc() {
     content: string;
   }[] = [];
 
-  let handoffs: { mhz: number; name: string }[] = [];
-
   function send(text: string, state: any) {
     trace("send: " + text);
 
@@ -101,18 +98,35 @@ export function createAtc() {
     return sectorAt(state.latitude, state.longitude, state.indicatedAlt);
   }
 
+  let last: { com1: number; facility: any } | null = null;
+
   function getFacility(state: any) {
     const facility = resolveFacility(
       state,
       Object.values(state?.airports ?? {}),
-      handoffs,
     );
 
-    if (facility) return facility;
+    if (facility) {
+      last = { com1: state.com1, facility };
+      return facility;
+    }
 
     const sector = getSector(state);
-    if (sector && Math.abs(sector.mhz - state.com1) < 0.006)
+    if (sector && Math.abs(sector.mhz - state.com1) < 0.006) {
+      last = {
+        com1: state.com1,
+        facility: {
+          name: sector.name,
+          freqType: sector.freqType,
+          mhz: sector.mhz,
+        },
+      };
+
       return { name: sector.name, freqType: sector.freqType, mhz: sector.mhz };
+    }
+
+    if (last && Math.abs(last.com1 - state.com1) < 0.006) return last.facility;
+    return null;
   }
 
   function approachTop(lat: number, lon: number) {
@@ -250,11 +264,13 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
         : m,
     );
 
+    let transmission: string | null = null;
+
     const result = await generateText({
       model,
       system,
       messages,
-      stopWhen: stepCountIs(6),
+      stopWhen: [hasToolCall("transmit"), stepCountIs(6)],
       maxOutputTokens: 25000,
 
       tools: {
@@ -267,9 +283,19 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
           },
         }),
 
+        transmit: tool({
+          description:
+            "Transmit a message over radio to the pilot. This call should be consise and use standard atc phraseology, no comments, explanations or excuses. Call this last, after any other tool use.",
+          inputSchema: z.object({ message: z.string() }),
+          execute: async (input) => {
+            transmission = input.message.trim();
+            return { success: true };
+          },
+        }),
+
         recordInstruction: tool({
           description:
-            "Record the instructions you just transmitted, use this in the same turn as when you issue the instruction",
+            "Record the instructions you just transmitted, call this before or in the same turn as you call transmit, not after",
           inputSchema: z.object({
             squawk: z.string().optional(),
             flightPlanClearance: z
@@ -290,39 +316,11 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
               .nullable()
               .optional()
               .describe("degrees, null to resume own navigation"),
-            handoffFreq: z
-              .number()
-              .optional()
-              .describe("mhz")
-              .describe(
-                "set this the moment you tell the pilot to change frequency, not when the pilot is handed over to you, only use it once and dont call repeatedly, its saved even if you dont see it",
-              ),
-            handoffName: z
-              .string()
-              .optional()
-              .describe("name of facility handing off to"),
           }),
           execute: async (input) => {
             if (input.squawk && !/^[0-7]{4}$/.test(input.squawk)) {
               return { error: "invalid squawk code" };
             }
-
-            if (input.handoffFreq && !input.handoffName) {
-              return {
-                error: "handoffName is required when handoffFreq is provided",
-              };
-            }
-
-            if (input.handoffFreq && input.handoffName) {
-              handoffs.push({
-                mhz: input.handoffFreq,
-                name: input.handoffName,
-              });
-              trace(`handoffs: ${JSON.stringify(handoffs)}`);
-            }
-
-            input.handoffFreq = undefined;
-            input.handoffName = undefined;
 
             assigned = { ...assigned, ...input };
             return { success: true };
@@ -334,18 +332,14 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
       throw e;
     });
 
-    let message = result?.text?.trim();
-    if (!message || message.startsWith("null")) {
+    if (!transmission) {
+      trace("no transmission, ai text was: " + result.text);
       history.pop();
       return null;
     }
 
-    history.push({ role: "assistant", content: message });
-
-    return {
-      facility: facility.name,
-      message,
-    };
+    history.push({ role: "assistant", content: transmission });
+    return { facility: facility.name, message: transmission };
   }
 
   function nearestAirport(state: any) {

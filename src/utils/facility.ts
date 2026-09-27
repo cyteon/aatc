@@ -35,11 +35,7 @@ export const RANGE_NM: Record<number, number> = {
 
 export type Freq = { freqType: number; hz: number; name: string };
 
-export function resolveFacility(
-  state: any,
-  airports: any[],
-  handoffs: Handoff[],
-) {
+export function resolveFacility(state: any, airports: any[]) {
   const com1 = state?.com1;
   if (!(com1 >= 118 && com1 <= 137)) return null;
 
@@ -64,9 +60,6 @@ export function resolveFacility(
       icao: ap.icao,
     };
   }
-
-  const handed = handoffs.find((h) => Math.abs(h.mhz - com1) < 0.006);
-  if (handed) return { name: handed.name, freqType: 10 };
 
   return null;
 }
