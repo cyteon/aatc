@@ -11,16 +11,17 @@ const SYSTEM_PROMPT = `
 You are an ATC controller in a flight simulator and you handle a singular plane.
 
 Transmissions should be realistic with standard phraseology and without any explaining yourself or extra comments.
-Only use facts from the state block or a tool result, if you do not have the needed information respond with unable and ask the pilot.
+Frequencies, SIDs, STARs, runways and taxiways must come from your data and shall never be invented.
 Do NOT include markdown, thinking or emojis in your response.
 
-Do not invent any SIDs, STARs, taxiways, frequencies or anything else.
+Do not invent any SIDs, STARs, taxiways, runways or frequencies (but do not ask the pilot for a frequency).
 Identify yourself by the facility name and not "ATC" or "controller".
 If the pilot does not say their callsign then you dont magically know who they are based on the live data.
 If you are not the correct facility for what the pilot is requesting, then hand them over to the correct frequency.
 Do not use the default squawk, use the generate tool and save that squawk to the assignements.
 When handing the pilot over to another frequency always include the frequency in your transmission, when the pilot reads back the handoff do NOT repeat "contact ..." again, only say readback correct.
-Messages market [EVENT] are not from the pilot but are automatically generated. If it warrants you telling the pilot something then do so, otherwise return "null"
+Do not repeat your instruction after the pilot reading it back, if its a long transmission say readback correct otherwise return "null".
+Messages marked [EVENT] are not from the pilot but are automatically generated. If it warrants you telling the pilot something then do so, otherwise return "null"
 `.trim();
 
 const RESERVED_SQUAWKS = ["0000", "1200", "7500", "7600", "7700"];
@@ -49,13 +50,16 @@ export function createAtc() {
     return null;
   });
 
+  let loadedFlightPlan: FlightPlan | null = null;
+
   flightPlan.then((plan) => {
     if (!plan) return;
+    loadedFlightPlan = plan;
 
     for (const code of [
-      plan.origin,
-      plan.destination,
-      plan.alternate,
+      plan.origin.icao,
+      plan.destination.icao,
+      plan.alternate.icao,
       ...Object.values(plan.waypoints).map((w) => w.fir),
     ]) {
       ensureSectors(code!).catch((e) => {
@@ -111,11 +115,50 @@ export function createAtc() {
       return { name: sector.name, freqType: sector.freqType, mhz: sector.mhz };
   }
 
+  function approachTop(lat: number, lon: number) {
+    for (let fl = 450; fl > 0; fl -= 5) {
+      if ((sectorAt(lat, lon, fl * 100)?.freqType ?? 10) !== 10) return fl;
+    }
+
+    return;
+  }
+
+  let descentGiven = false;
+  function checkDescent(state: any) {
+    if (!loadedFlightPlan) return;
+
+    const tod = loadedFlightPlan.tod;
+    if (descentGiven || !tod || !state) return;
+
+    const dist = distNm(state.latitude, state.longitude, tod.lat, tod.lon);
+    if (!(dist <= 15)) return;
+
+    descentGiven = true;
+
+    let message = `[EVENT] The aircraft is within 15nm of its planned top of descent for arrival ${loadedFlightPlan?.destination.icao}, tell the aircraft to descent to a fitting level of your choice.`;
+
+    const top = approachTop(
+      loadedFlightPlan.destination.lat,
+      loadedFlightPlan.destination.lon,
+    );
+
+    if (top) {
+      message += ` ${loadedFlightPlan?.destination.icao} approach controller is FL${top} and below`;
+    }
+
+    return send(message, state);
+  }
+
   let target: number | null = null;
   let since = 0;
   let handedOver = false;
 
   function tick(state: any) {
+    if (!state || state.onGround) return;
+
+    const descent = checkDescent(state);
+    if (descent) return descent;
+
     const sector = getSector(state);
     const current = getFacility(state);
 
@@ -140,7 +183,7 @@ export function createAtc() {
 
     handedOver = true;
     return send(
-      `[EVENT] The aircraft has entered airspace controlled by ${sector.name} on ${sector.mhz.toFixed(3)} mhz, hand them over to ${sector.name}`,
+      `[EVENT] The aircraft has entered airspace controlled by ${sector.name} on ${sector.mhz.toFixed(3)} mhz, hand them over to ${sector.name} (even if the sector might have the same name as you)`,
       state,
     );
   }
@@ -153,7 +196,7 @@ export function createAtc() {
       SYSTEM_PROMPT +
       `\n
 [Filed Flight Plan]
-${plan.rules} from ${plan.origin} to ${plan.destination}, alternate is ${plan.alternate}
+${plan.rules} from ${plan.origin.icao} to ${plan.destination.icao}, alternate is ${plan.alternate.icao}
 ${plan.aircraft} with requested cruise alt ${plan.cruiseAlt} ft
 
 Route: ${plan.route}
@@ -201,13 +244,16 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
     const system = await systemPrompt();
     trace("system prompt:\n" + system);
 
-    let temp_history = [...history];
-    temp_history.at(-1)!.content = compiled + "\n\n[Transmission]\n" + text;
+    const messages = history.map((m, i) =>
+      i === history.length - 1
+        ? { ...m, content: compiled + "\n\n[Transmission]\n" + m.content }
+        : m,
+    );
 
     const result = await generateText({
       model,
       system,
-      messages: history,
+      messages,
       stopWhen: stepCountIs(6),
       maxOutputTokens: 25000,
 
@@ -249,7 +295,7 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
               .optional()
               .describe("mhz")
               .describe(
-                "set this the moment you tell the pilot to change frequency, not when the pilot is handed over to you",
+                "set this the moment you tell the pilot to change frequency, not when the pilot is handed over to you, only use it once and dont call repeatedly, its saved even if you dont see it",
               ),
             handoffName: z
               .string()
@@ -283,10 +329,16 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
           },
         }),
       },
+    }).catch((e) => {
+      history.pop();
+      throw e;
     });
 
     let message = result?.text?.trim();
-    if (!message || message.startsWith("null")) return;
+    if (!message || message.startsWith("null")) {
+      history.pop();
+      return null;
+    }
 
     history.push({ role: "assistant", content: message });
 

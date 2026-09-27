@@ -131,12 +131,17 @@ export default function App() {
             </Text>
           </Box>
 
-          <Box>
+          <Box marginRight={2}>
             <Text color="#0B1026">IAS </Text>
             <Text bold>
               {state?.iasKt ? Math.round(state?.iasKt) : "---"}
               {state?.iasKt ? "kt" : ""}
             </Text>
+          </Box>
+
+          <Box>
+            <Text color="#0B1026">STATUS </Text>
+            <Text bold>{state?.onGround ? "ON GROUND" : "FLYING"}</Text>
           </Box>
         </Box>
       </Box>
