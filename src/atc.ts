@@ -6,6 +6,7 @@ import { ensureSectors, sectorAt } from "./utils/sectors";
 import { generateText, hasToolCall, stepCountIs, tool } from "ai";
 import getSimbriefFlightPlan, { type FlightPlan } from "./simbrief";
 import z from "zod";
+import { tts } from "./tts";
 
 const SYSTEM_PROMPT = `
 You are an ATC controller in a flight simulator and you handle a singular plane.
@@ -338,6 +339,8 @@ Arrival METAR: ${plan.arrivalMetar ?? "not available"}
       history.pop();
       return null;
     }
+
+    tts(transmission);
 
     history.push({ role: "assistant", content: transmission });
     return { facility: facility.name, message: transmission };

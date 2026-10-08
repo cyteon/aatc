@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { connectSim } from "./sim";
 import { useScreenSize } from "fullscreen-ink";
 import { createAtc } from "./atc";
+import { tts } from "./tts";
 
 const OTHER_ROWS = 5;
 
