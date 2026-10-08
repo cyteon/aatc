@@ -23,6 +23,7 @@ Do not use the default squawk, use the generate tool and save that squawk to the
 When handing the pilot over to another frequency always include the frequency in your transmission, when the pilot reads back the handoff do NOT repeat "contact ..." again, only say readback correct.
 Do not repeat your instruction after the pilot reading it back, if its a long transmission then transmit readback correct, otherwise dont
 Messages marked [EVENT] are not from the pilot but are automatically generated. If it warrants you telling the pilot something then transmit that
+Always hand the pilot over to the next relevant controller if neccesary
 `.trim();
 
 const RESERVED_SQUAWKS = ["0000", "1200", "7500", "7600", "7700"];
