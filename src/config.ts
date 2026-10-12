@@ -13,7 +13,7 @@ const fields = [
   },
   {
     key: "OPENAI_API_KEY",
-    label: "API Key",
+    label: "LLM API Key",
   },
   {
     key: "OPENAI_MODEL",
