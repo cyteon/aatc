@@ -44,6 +44,8 @@ try {
 let changed = false;
 
 for (const field of fields) {
+  if (process.env[field.key]) continue;
+
   if (saved[field.key] === undefined) {
     let value = "";
 
@@ -60,6 +62,8 @@ for (const field of fields) {
     saved[field.key] = value;
     changed = true;
   }
+
+  if (saved[field.key]) process.env[field.key] = saved[field.key];
 }
 
 if (changed) {
