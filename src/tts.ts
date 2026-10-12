@@ -1,7 +1,7 @@
 import Replicate from "replicate";
 import path from "node:path";
+import os from "node:os";
 import { trace } from "./sim";
-import { playAudioFile } from "audic";
 
 // prettier-ignore
 const numbers = {
@@ -82,7 +82,7 @@ export async function tts(text: string): Promise<void> {
   const input = {
     voice_id: "Dennis",
     text: fixPronounciation(text),
-    volume: 2,
+    volume: 4,
   };
 
   const output = await replicate.run("inworld/realtime-tts-1.5-mini", {
@@ -96,11 +96,34 @@ export async function tts(text: string): Promise<void> {
   const blob = (await output.blob()) as Blob;
   const buffer = await blob.arrayBuffer();
 
-  const filePath = path.join(__dirname, `tts-${ttsIndex++}.wav`);
+  const filePath = path.join(os.tmpdir(), `aatc-tts-${ttsIndex++}.mp3`);
 
   await Bun.write(filePath, buffer);
 
-  await playAudioFile(filePath);
+  const escaped = filePath.replace(/'/g, "''");
+
+  const proc = Bun.spawn(
+    [
+      "powershell",
+      "-NoProfile",
+      "-Command",
+      `Add-Type -AssemblyName PresentationCore
+      $player = New-Object System.Windows.Media.MediaPlayer
+      $player.Open([uri]'${escaped}')
+      $player.Volume = 1.0
+      while (-not $player.NaturalDuration.HasTimeSpan) { Start-Sleep -Milliseconds 100 }
+      $player.Play()
+      Start-Sleep -Milliseconds ($player.NaturalDuration.TimeSpan.TotalMilliseconds + 200)
+      `,
+    ],
+    { stdout: "ignore", stderr: "pipe" },
+  );
+  const code = await proc.exited;
+
+  if (code !== 0) {
+    const err = await new Response(proc.stderr).text();
+    console.error("error playing TTS audio:", err);
+  }
 
   const file = Bun.file(filePath);
   await file.delete();
