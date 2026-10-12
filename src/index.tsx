@@ -1,3 +1,4 @@
+import "./config";
 import App from "./ui";
 import { withFullScreen } from "fullscreen-ink";
 import { closeSim, trace } from "./sim";
